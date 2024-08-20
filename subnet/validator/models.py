@@ -19,6 +19,9 @@ class Miner:
     # True if the miner is suspicious (its weight will be 0), false otherwise
     suspicious: bool = False
     penalty_factor: int = None
+    last_challenge: float = 0
+    network_status: int = 0
+    reason = str = None
 
     def __init__(
         self,
@@ -40,6 +43,9 @@ class Miner:
         challenge_attempts=0,
         process_time=0,
         ip_occurences=1,
+        last_challenge=0,
+        network_status=0,
+        reason = None
     ):
         self.uid = int(uid) if uid is not None else -1
         self.hotkey = hotkey
@@ -59,6 +65,10 @@ class Miner:
         self.challenge_successes = int(challenge_successes or 0)
         self.challenge_attempts = int(challenge_attempts or 0)
         self.process_time = float(process_time or 0)
+        self.last_challenge = float(last_challenge or 0)
+        self.network_status = int(network_status or 0)
+        self.reason = reason
+
 
     def reset(self, ip, hotkey, country):
         self.hotkey = hotkey
@@ -77,6 +87,9 @@ class Miner:
         self.challenge_successes = 0
         self.challenge_attempts = 0
         self.process_time = 0
+        self.last_challenge = 0
+        self.network_status = 0
+        self.reason = None
 
     @property
     def has_ip_conflicts(self):
@@ -100,13 +113,14 @@ class Miner:
             "challenge_successes": self.challenge_successes,
             "challenge_attempts": self.challenge_attempts,
             "process_time": self.process_time,
+            "last_challange": self.last_challenge,
         }
 
     def __str__(self):
-        return f"Miner(uid={self.uid}, hotkey={self.hotkey}, ip={self.ip}, ip_occurences={self.ip_occurences}, version={self.version}, country={self.country}, verified={self.verified}, sync={self.sync}, suspicious={self.suspicious}, penalty_factor={self.penalty_factor}, score={self.score}, availability_score={self.availability_score}, latency_score={self.latency_score}, reliability_score={self.reliability_score}, distribution_score={self.distribution_score}, challenge_attempts={self.challenge_attempts}, challenge_successes={self.challenge_successes}, process_time={self.process_time})"
+        return f"Miner(uid={self.uid}, hotkey={self.hotkey}, ip={self.ip}, ip_occurences={self.ip_occurences}, version={self.version}, country={self.country}, verified={self.verified}, sync={self.sync}, suspicious={self.suspicious}, penalty_factor={self.penalty_factor}, score={self.score}, availability_score={self.availability_score}, latency_score={self.latency_score}, reliability_score={self.reliability_score}, distribution_score={self.distribution_score}, challenge_attempts={self.challenge_attempts}, challenge_successes={self.challenge_successes}, process_time={self.process_time}, last_challenge={self.last_challenge}, reason={self.reason}, network_status={self.network_status})"
 
     def __repr__(self):
-        return f"Miner(uid={self.uid}, hotkey={self.hotkey}, ip={self.ip}, ip_occurences={self.ip_occurences}, version={self.version}, country={self.country}, verified={self.verified}, sync={self.sync}, suspicious={self.suspicious}, penalty_factor={self.penalty_factor}, score={self.score}, availability_score={self.availability_score}, latency_score={self.latency_score}, reliability_score={self.reliability_score}, distribution_score={self.distribution_score}, challenge_attempts={self.challenge_attempts}, challenge_successes={self.challenge_successes}, process_time={self.process_time})"
+        return f"Miner(uid={self.uid}, hotkey={self.hotkey}, ip={self.ip}, ip_occurences={self.ip_occurences}, version={self.version}, country={self.country}, verified={self.verified}, sync={self.sync}, suspicious={self.suspicious}, penalty_factor={self.penalty_factor}, score={self.score}, availability_score={self.availability_score}, latency_score={self.latency_score}, reliability_score={self.reliability_score}, distribution_score={self.distribution_score}, challenge_attempts={self.challenge_attempts}, challenge_successes={self.challenge_successes}, process_time={self.process_time}, last_challenge={self.last_challenge}, reason={self.reason}, network_status={self.network_status})"
 
     def __eq__(self, other):
         if isinstance(other, Miner):
@@ -129,6 +143,8 @@ class Miner:
                 and self.sync == other.sync
                 and self.suspicious == other.suspicious
                 and self.penalty_factor == other.penalty_factor
+                and self.last_challenge == other.last_challenge
+                and self.reason == other.reason
             )
         return False
 

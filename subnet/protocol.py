@@ -21,15 +21,40 @@ from subnet.bittensor.synapse import Synapse
 
 class Score(Synapse):
     validator_uid: typing.Optional[int] = None
+    miner_uid: int
+
+    # Challenge
+    process_time: float
+
+    # Score
     availability: float
     latency: float
     reliability: float
     distribution: float
     score: float
     count: typing.Optional[int] = 0
+    reason: typing.Optional[str] = None
 
     # Returns
     version: typing.Optional[str] = None
 
     def deserialize(self) -> typing.Optional[str]:
         return self.version
+
+
+class Miners(Synapse):
+    uids: typing.List[int]
+    countries: typing.List[str]
+    versions: typing.List[str]
+    network_status: typing.List[int]
+    last_challenges: typing.List[float]
+    process_times: typing.List[float]
+    final_scores: typing.List[float]
+    availability_scores: typing.List[float]
+    latency_scores: typing.List[float]
+    reliability_scores: typing.List[float]
+    distribution_scores: typing.List[float]
+    moving_average_scores: typing.List[float]
+
+    def deserialize(self) -> "Miners":
+        return self
