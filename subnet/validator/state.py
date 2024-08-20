@@ -34,6 +34,7 @@ import subnet.validator as validator
 from subnet.constants import TESTNET_SUBNET_UID, MAIN_SUBNET_UID
 from subnet.validator.models import Miner
 from subnet.validator.miner import resync_miners
+from subnet.validator.synapse import send_miners
 
 
 def should_checkpoint(current_block, prev_step_block, checkpoint_block_length):
@@ -49,6 +50,9 @@ async def resync_metagraph_and_miners(self, force_refresh=False):
     if resynched or force_refresh:
         # Resync miners list
         await resync_miners(self)
+
+        # Send Miner Synapse
+        send_miners(self, self.miners, self.moving_averaged_scores)
 
         # Send refresh data to wandb for global graphs
         log_event(self, [miner.uid for miner in self.miners])

@@ -152,6 +152,7 @@ def set_weights_for_validator(
             bt.logging.info("Set weights on chain successfully!")
         else:
             bt.logging.error(f"Set weights failed {message}.")
+
     finally:
         # Restore the initial value
         if not original_value:

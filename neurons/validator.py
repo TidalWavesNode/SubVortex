@@ -15,6 +15,7 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
+import json
 import time
 import copy
 import torch
@@ -26,23 +27,27 @@ from typing import List
 from traceback import print_exception
 
 from subnet import __version__ as THIS_VERSION
-
+from subnet.constants import NEURO_NETWROK_PORT
 from subnet.monitor.monitor import Monitor
 from subnet.country.country import CountryService
 from subnet.file.file_monitor import FileMonitor
+from subnet.shared.network import NeuroNetwork
+from subnet.protocol import Miners
 
 from subnet.shared.checks import check_registration
 from subnet.shared.utils import get_redis_password, should_upgrade
 from subnet.shared.subtensor import get_current_block
 from subnet.shared.weights import should_set_weights
 from subnet.shared.mock import MockMetagraph, MockDendrite, MockSubtensor
+from subnet.shared.network import Peer
 from subnet.bittensor.dendrite import SubVortexDendrite
-
+from subnet.bittensor.metagraph import SubVortexMetagraph
 from subnet.validator.config import config, check_config, add_args
 from subnet.validator.forward import forward
 from subnet.validator.models import Miner
 from subnet.validator.version import VersionControl
 from subnet.validator.miner import get_all_miners
+from subnet.validator.synapse import send_miners
 from subnet.validator.state import (
     resync_metagraph_and_miners,
     load_state,
@@ -100,8 +105,13 @@ class Validator:
         bt.logging._stream_formatter.set_trace(self.config.logging.trace)
         bt.logging.info(f"{self.config}")
 
-        # Show miner version
-        bt.logging.debug(f"validator version {THIS_VERSION}")
+        # Set ip of the validator
+        self.ip = bt.utils.networking.get_external_ip()
+        self.version = THIS_VERSION
+
+        # Show validator details
+        bt.logging.debug(f"validator ip {self.ip}")
+        bt.logging.debug(f"validator version {self.version}")
 
         # Init device.
         bt.logging.debug("loading device")
@@ -136,8 +146,10 @@ class Validator:
         self.metagraph = (
             MockMetagraph(self.config.netuid, subtensor=self.subtensor)
             if self.config.mock
-            else bt.metagraph(
-                netuid=self.config.netuid, network=self.subtensor.network, sync=False
+            else SubVortexMetagraph(
+                netuid=self.config.netuid,
+                network=self.subtensor.network,
+                sync=False,
             )
         )
         self.metagraph.sync(subtensor=self.subtensor)  # Sync metagraph with subtensor.
@@ -227,6 +239,22 @@ class Validator:
         # Load the state
         load_state(self)
 
+        # Start Neuro Network
+        neurons = [(x.uid, x.axon_info.ip) for x in self.metagraph.neurons]
+        self.p2p = NeuroNetwork(
+            uid=self.uid,
+            ip=self.ip,
+            port=NEURO_NETWROK_PORT,
+            peers=neurons,
+            version=self.version,
+        )
+        self.p2p.start()
+        self.p2p.subscribe("DISCOVERY#ACK", self._handle_discovery_ack())
+        self.p2p.subscribe("MINER", self._handle_miners)
+
+        # Send Miner Synapse
+        send_miners(self, self.miners, self.moving_averaged_scores)
+
         try:
             while 1:
                 # Start the upgrade process every 10 minutes
@@ -292,6 +320,7 @@ class Validator:
                         netuid=self.config.netuid,
                         moving_averaged_scores=self.moving_averaged_scores,
                     )
+
                     prev_set_weights_block = get_current_block(self.subtensor)
                     save_state(self)
 
@@ -315,6 +344,10 @@ class Validator:
 
         # After all we have to ensure subtensor connection is closed properly
         finally:
+            if self.p2p:
+                bt.logging.info("Stopping neuro network")
+                self.p2p.stop()
+
             if self.file_monitor:
                 self.file_monitor.stop()
 
@@ -328,6 +361,32 @@ class Validator:
             if hasattr(self, "subtensor"):
                 bt.logging.debug("Closing subtensor connection")
                 self.subtensor.close()
+
+    def _handle_discovery_ack(self):
+        def handle_discovery(message):
+            # Instanciate peer
+            content = json.loads(message)
+
+            # Get the new Peer
+            peer = Peer(**content, status="healthy")
+
+            miner = next((x for x in self.miners if x.uid == peer.uid), None)
+
+            if not miner:
+                return
+
+            miner.version = peer.version
+            miner.network_status = peer.status
+
+            # Send Miner Synapse
+            # TODO: Check if we need it or not
+            # send_miners(self, self.miners)
+
+        return handle_discovery
+
+    def _handle_miners(self, message):
+        # TODO: Resync the miners snapshot!!
+        pass
 
 
 if __name__ == "__main__":

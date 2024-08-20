@@ -204,6 +204,14 @@ def add_args(cls, parser):
         "--mock", action="store_true", help="Mock all items.", default=False
     )
 
+    # Prometheus
+    parser.add_argument(
+        "--prometheus.port",
+        type=int,
+        help="Port of the prometheus server",
+        default=None,
+    )
+
 
 def config(cls):
     parser = argparse.ArgumentParser()

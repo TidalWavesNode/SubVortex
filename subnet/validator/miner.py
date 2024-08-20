@@ -78,6 +78,7 @@ async def get_all_miners(self) -> List[Miner]:
                 statistics.get(b"challenge_attempts"), 0
             )
             process_time = get_field_value(statistics.get(b"process_time"), 0)
+            last_challange = get_field_value(statistics.get(b"last_challange"), None)
 
             miner = Miner(
                 uid=uid,
@@ -95,6 +96,7 @@ async def get_all_miners(self) -> List[Miner]:
                 challenge_successes=challenge_successes,
                 challenge_attempts=challenge_attempts,
                 process_time=process_time,
+                last_challenge=last_challange,
             )
 
         # Update the database just to be sure we have the right country

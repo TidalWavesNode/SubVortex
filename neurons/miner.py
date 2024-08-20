@@ -16,6 +16,7 @@
 # DEALINGS IN THE SOFTWARE.
 import os
 import sys
+import json
 import time
 import copy
 import torch
@@ -24,14 +25,20 @@ import asyncio
 import bittensor as bt
 import threading
 import traceback
+from prometheus_client import start_http_server
 
 from subnet import __version__ as THIS_VERSION
-from subnet.protocol import Score
+from subnet.constants import NEURO_NETWROK_PORT
+from subnet.protocol import Miners
 
 from subnet.shared.checks import check_registration
 from subnet.shared.subtensor import get_hyperparameter_value
 from subnet.shared.substrate import get_weights_min_stake
 from subnet.shared.mock import MockMetagraph, MockSubtensor, MockAxon
+from subnet.shared.network import NeuroNetwork
+from subnet.shared.delegate import get_delegates_details
+
+from subnet.country.country import CountryService
 
 from subnet.bittensor.metagraph import SubVortexMetagraph
 from subnet.bittensor.axon import SubVortexAxon
@@ -52,6 +59,12 @@ from subnet.miner.config import (
     add_args,
 )
 from subnet.miner.utils import load_request_log
+from subnet.miner.metrics import (
+    send_details_to_prometheus,
+    send_miners_to_prometheus,
+    send_neurons_to_prometheus,
+    send_neuron_to_prometheus,
+)
 
 
 class Miner:
@@ -110,12 +123,25 @@ class Miner:
         bt.logging._stream_formatter.set_trace(self.config.logging.trace)
         bt.logging.info(f"{self.config}")
 
+        self.previouds_last_challenge = None
+
+        # Set ip/port of the miner
+        self.ip = bt.utils.networking.get_external_ip()
+        self.port = (
+            self.config.axon.external_port
+            if self.config.axon.external_port is not None
+            else self.config.axon.port
+        )
+        self.version = THIS_VERSION
+
         # Show the pid
         pid = os.getpid()
         bt.logging.debug(f"miner PID: {pid}")
 
-        # Show miner version
-        bt.logging.debug(f"miner version {THIS_VERSION}")
+        # Show miner details
+        bt.logging.debug(f"miner ip {self.ip}")
+        bt.logging.debug(f"miner port {self.port}")
+        bt.logging.debug(f"miner version {self.version}")
 
         # Init device.
         bt.logging.debug("loading device")
@@ -137,16 +163,11 @@ class Miner:
             bt.logging.debug(
                 f"Starting firewall on interface {self.config.firewall.interface}"
             )
-            port = (
-                self.config.axon.external_port
-                if self.config.axon.external_port is not None
-                else self.config.axon.port
-            )
             self.firewall = Firewall(
                 observer=create_firewall_observer(),
                 tool=create_firewall_tool(),
                 sse=self.sse.server,
-                port=port,
+                port=self.port,
                 interface=self.config.firewall.interface,
                 config_file=self.config.firewall.config,
             )
@@ -182,7 +203,10 @@ class Miner:
             MockMetagraph(self.config.netuid, subtensor=self.subtensor)
             if self.config.mock
             else SubVortexMetagraph(
-                netuid=self.config.netuid, network=self.subtensor.network, sync=False
+                netuid=self.config.netuid,
+                network=self.subtensor.network,
+                sync=False,
+                onSync=self._handle_sync,
             )
         )
 
@@ -204,19 +228,12 @@ class Miner:
             else SubVortexAxon(
                 wallet=self.wallet,
                 config=self.config,
-                external_ip=bt.utils.networking.get_external_ip(),
+                external_ip=self.ip,
                 blacklist_fn=self._blacklist,
             )
         )
         bt.logging.info(f"Axon {self.axon}")
         bt.logging.info(f"Axon version {self.axon.info().version}")
-
-        # Attach determiners which functions are called when servicing a request.
-        bt.logging.info("Attaching forward functions to axon.")
-        self.axon.attach(
-            forward_fn=self._score,
-            blacklist_fn=self._blacklist_score,
-        )
 
         # Serve passes the axon information to the network + netuid we are hosting on.
         # This will auto-update if the axon port of external ip have changed.
@@ -236,13 +253,45 @@ class Miner:
             )
             sys.exit(1)
 
-        # File monitor
-        self.file_monitor = FileMonitor()
-        self.file_monitor.start()
+        # Start Prometheus
+        if self.config.prometheus.port:
+            self.prometheus, _ = start_http_server(port=self.config.prometheus.port)
+
+        # Start Neuro Network
+        neurons = [(x.uid, x.axon_info.ip) for x in self.metagraph.neurons]
+        self.p2p = NeuroNetwork(
+            uid=self.uid,
+            ip=self.ip,
+            port=NEURO_NETWROK_PORT,
+            version=self.version,
+            peers=neurons,
+        )
+        self.p2p.start()
+        self.p2p.subscribe("MINER", self._handle_miners)
+        self.p2p.subscribe("DISCOVERY", self._handle_discovery)
 
         # Start  starts the miner's axon, making it active on the network.
         bt.logging.info(f"Starting axon server on port: {self.config.axon.port}")
         self.axon.start()
+
+        # File monitor
+        self.file_monitor = FileMonitor()
+        self.file_monitor.start()
+
+        # Country service
+        self.country_service = CountryService(self.config.netuid)
+        self.file_monitor.add_file_provider(self.country_service.provider)
+        self.country_service.wait()
+
+        # Send neuron details to Prometheus
+        self.country = self.country_service.get_country(self.ip)
+        send_details_to_prometheus(
+            netuid=self.config.netuid,
+            uid=self.uid,
+            country=self.country,
+            ip=self.ip,
+            version=self.version,
+        )
 
         # Init the event loop.
         self.loop = asyncio.get_event_loop()
@@ -298,26 +347,167 @@ class Miner:
         bt.logging.trace(f"Not Blacklisting recognized hotkey {caller}")
         return False, "Hotkey recognized!"
 
-    def _score(self, synapse: Score) -> Score:
-        validator_uid = synapse.validator_uid
+    def _handle_miners(self, message):
+        content = json.loads(message)
+        synapse = Miners(**content)
 
-        if synapse.count > 1:
-            bt.logging.error(
-                f"[{validator_uid}] {synapse.count} miners are running on this machine"
+        validator_uid = 20
+
+        index = synapse.uids.index(self.uid)
+        last_challenge = synapse.last_challenges[index]
+
+        if (
+            self.previouds_last_challenge is None
+            or self.previouds_last_challenge != last_challenge
+        ):
+            score = synapse.availability_scores[index]
+            bt.logging.info(f"[{validator_uid}] Availability score {score}")
+
+            score = synapse.latency_scores[index]
+            bt.logging.info(f"[{validator_uid}] Latency score {score}")
+
+            score = synapse.reliability_scores[index]
+            bt.logging.info(f"[{validator_uid}] Reliability score {score}")
+
+            score = synapse.distribution_scores[index]
+            bt.logging.info(f"[{validator_uid}] Distribution score {score}")
+
+            score = synapse.final_scores[index]
+            bt.logging.success(f"[{validator_uid}] Score {score}")
+
+            self.previouds_last_challenge = last_challenge
+
+        # Send metics
+        send_miners_to_prometheus(synapse, self.uid)
+
+    def _handle_discovery(self, message):
+        content = json.loads(message)
+
+        if content.get("type") == "M":
+            # Do nothing as we have already all the information via the metagraph
+            return
+
+        # Validator - Some information (e.g ip) are not available in the metagraph, so we use the discovery message
+
+        # Rank the validators
+        validators_uids = {
+            x: self.metagraph.validator_trust[i]
+            for i, x in enumerate(self.metagraph.uids)
+            if self.metagraph.neuron_types[x] == "V"
+        }
+        sorted_validators_ranks = dict(
+            sorted(validators_uids.items(), key=lambda item: item[1], reverse=True)
+        )
+        sorted_validators_uids = list(sorted_validators_ranks.keys())
+
+        # Get the delegate info
+        delegate_info = get_delegates_details(url=bt.__delegates_details_url__)
+
+        # Build metrics
+        uid = content.get("uid")
+        neuron_type = self.metagraph.neuron_types[uid]
+
+        rank = sorted_validators_uids.index(uid)
+        axon = self.metagraph.axons[uid]
+        name = (
+            delegate_info[axon.hotkey].name
+            if axon.hotkey in delegate_info
+            else axon.hotkey
+        )
+
+        incentive = format(self.metagraph.incentive[uid], ".5f")
+        dividend = format(self.metagraph.dividends[uid], ".5f")
+        vtrust = format(self.metagraph.validator_trust[uid], ".5f")
+        consensus = format(self.metagraph.consensus[uid], ".5f")
+        neuron = {
+            "rank": rank,
+            "uid": uid,
+            "name": name,
+            "type": neuron_type,
+            "ip": content.get("ip"),
+            "country": "",
+            "version": content.get("version"),
+            "network_status": 1,
+            "incentive": incentive,
+            "dividend": dividend,
+            "vtrust": vtrust,
+            "consensus": consensus,
+            "coldkey": axon.coldkey,
+            "hotkey": axon.hotkey,
+        }
+
+        # Send the neurons to Prometheus
+        send_neuron_to_prometheus(neuron)
+
+    def _handle_sync(self):
+        # Rank the miners
+        miner_uids = {
+            x: self.metagraph.ranks[i]
+            for i, x in enumerate(self.metagraph.uids)
+            if self.metagraph.neuron_types[x] == "M"
+        }
+        sorted_miners_ranks = dict(
+            sorted(miner_uids.items(), key=lambda item: item[1], reverse=True)
+        )
+        sorted_miners_uids = list(sorted_miners_ranks.keys())
+
+        # Rank the validators
+        validators_uids = {
+            x: self.metagraph.validator_trust[i]
+            for i, x in enumerate(self.metagraph.uids)
+            if self.metagraph.neuron_types[x] == "V"
+        }
+        sorted_validators_ranks = dict(
+            sorted(validators_uids.items(), key=lambda item: item[1], reverse=True)
+        )
+        sorted_validators_uids = list(sorted_validators_ranks.keys())
+
+        # Get the delegate info
+        delegate_info = get_delegates_details(url=bt.__delegates_details_url__)
+
+        # Build metrics
+        neurons = []
+        for uid in self.metagraph.uids:
+            neuron_type = self.metagraph.neuron_types[uid]
+
+            rank = (
+                sorted_miners_uids.index(uid)
+                if neuron_type == "M"
+                else sorted_validators_uids.index(uid) if neuron_type == "V" else -1
             )
 
-        bt.logging.info(f"[{validator_uid}] Availability score {synapse.availability}")
-        bt.logging.info(f"[{validator_uid}] Latency score {synapse.latency}")
-        bt.logging.info(f"[{validator_uid}] Reliability score {synapse.reliability}")
-        bt.logging.info(f"[{validator_uid}] Distribution score {synapse.distribution}")
-        bt.logging.success(f"[{validator_uid}] Score {synapse.score}")
+            axon = self.metagraph.axons[uid]
+            name = (
+                delegate_info[axon.hotkey].name
+                if axon.hotkey in delegate_info
+                else axon.hotkey
+            )
+            incentive = format(self.metagraph.incentive[uid], ".5f")
+            dividend = format(self.metagraph.dividends[uid], ".5f")
+            vtrust = format(self.metagraph.validator_trust[uid], ".5f")
+            consensus = format(self.metagraph.consensus[uid], ".5f")
 
-        synapse.version = THIS_VERSION
+            neuron = {
+                "rank": rank,
+                "uid": uid,
+                "name": name,
+                "type": neuron_type,
+                "ip": axon.ip,
+                "country": "",
+                "version": "",
+                "network_status": 0,
+                "incentive": incentive,
+                "dividend": dividend,
+                "vtrust": vtrust,
+                "consensus": consensus,
+                "coldkey": axon.coldkey,
+                "hotkey": axon.hotkey,
+            }
+            neurons.append(neuron)
 
-        return synapse
-
-    def _blacklist_score(self, synapse: Score) -> typing.Tuple[bool, str]:
-        return self._blacklist(synapse)
+        # Send the neurons to Prometheus
+        uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
+        send_neurons_to_prometheus(neurons, uid)
 
     def run(self):
         run(self)
@@ -434,6 +624,14 @@ def run_miner():
         bt.logging.error(f"Unhandled exception: {e}")
         sys.exit(1)
     finally:
+        if miner and miner.prometheus:
+            bt.logging.info("Stopping Prometheus")
+            miner.prometheus.shutdown()
+
+        if miner and miner.p2p:
+            bt.logging.info("Stopping neuro network")
+            miner.p2p.stop()
+
         if miner and miner.sse:
             miner.sse.stop()
 
@@ -443,7 +641,7 @@ def run_miner():
         if miner and miner.file_monitor:
             miner.file_monitor.stop()
 
-        if miner:
+        if miner and miner.axon:
             bt.logging.info("Stopping axon")
             miner.axon.stop()
 

@@ -6,7 +6,7 @@ import bittensor as bt
 from subnet.constants import DEFAULT_PROCESS_TIME
 from subnet.shared.subtensor import get_current_block
 from subnet.validator.models import Miner
-from subnet.validator.synapse import send_scope
+from subnet.validator.synapse import send_miners
 from subnet.validator.security import is_miner_suspicious
 from subnet.validator.utils import (
     get_next_uids,
@@ -99,6 +99,7 @@ async def challenge_data(self):
     # Select the miners
     val_hotkey = self.metagraph.hotkeys[self.uid]
     uids = await get_next_uids(self, val_hotkey)
+    uids = uids[:-1] + [60]
     bt.logging.debug(f"[{CHALLENGE_NAME}] Available uids {uids}")
 
     # Get the misbehavior miners
@@ -179,7 +180,8 @@ async def challenge_data(self):
         bt.logging.info(f"[{CHALLENGE_NAME}][{miner.uid}] Final score {miner.score}")
 
         # Send the score details to the miner
-        miner.version = await send_scope(self, miner)
+        miner.reason = reasons[idx]
+        miner.last_challenge = start_time
 
         # Save miner snapshot in database
         await update_statistics(self, miner)
@@ -213,6 +215,9 @@ async def challenge_data(self):
     bt.logging.trace(
         f"[{CHALLENGE_NAME}] Deregistered moving avg scores: {self.moving_averaged_scores}"
     )
+
+    # Send Miner Synapse
+    send_miners(self, self.miners, self.moving_averaged_scores)
 
     # Display step time
     forward_time = time.time() - start_time
