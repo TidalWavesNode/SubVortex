@@ -327,6 +327,10 @@ class NeuroNetwork(threading.Thread):
         event_name = details[0]
         message_content = details[1]
 
+        # Get the peer that send the message
+        peer = next((x for x in self._peers if x.ip == addr[0]), None)
+        neuron_uid = peer.uid if peer else None
+
         if event_name == "DISCOVERY":
             self._process_discovery(message_content)
         elif event_name == "DISCOVERY#ACK":
@@ -340,7 +344,7 @@ class NeuroNetwork(threading.Thread):
 
         handlers = self._events.get(event_name, [])
         for handler in handlers:
-            handler(message_content)
+            handler(message=message_content, neuron_uid=neuron_uid)
 
     def _process_discovery(self, message):
         # Instanciate peer

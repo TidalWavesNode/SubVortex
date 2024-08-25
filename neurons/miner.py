@@ -348,7 +348,11 @@ class Miner:
         bt.logging.trace(f"Not Blacklisting recognized hotkey {caller}")
         return False, "Hotkey recognized!"
 
-    def _handle_miners(self, message):
+    def _handle_miners(self, *args, **kwargs):
+        # Get the arguments
+        message = kwargs.get("message", "")
+        validator_uid = kwargs.get("neuron_uid", -1)
+
         content = json.loads(message)
 
         miners: typing.List[MinerEntity] = []
@@ -356,10 +360,9 @@ class Miner:
             miner = MinerEntity(**item)
             miners.append(miner)
 
-        validator_uid = 20
         miner = next((x for x in miners if x.uid == self.uid), None)
 
-        if (
+        if miner is not None and (
             self.previous_last_challenge is None
             or self.previous_last_challenge != miner.last_challenge
         ):
@@ -383,7 +386,10 @@ class Miner:
         # Send metics
         send_miners_to_prometheus(miners)
 
-    def _handle_discovery(self, message):
+    def _handle_discovery(self, *args, **kwargs):
+        # Get the arguments
+        message = kwargs.get("message", "")
+
         content = json.loads(message)
 
         if content.get("type") == "M":
@@ -410,7 +416,9 @@ class Miner:
         uid = content.get("uid")
         neuron_type = self.metagraph.neuron_types[uid]
 
-        rank = sorted_validators_uids.index(uid)
+        rank = (
+            sorted_validators_uids.index(uid) if uid in sorted_validators_uids else -1
+        )
         axon = self.metagraph.axons[uid]
         name = (
             delegate_info[axon.hotkey].name
@@ -419,6 +427,7 @@ class Miner:
         )
 
         incentive = format(self.metagraph.incentive[uid], ".5f")
+        stake = self.metagraph.stake[uid]
         dividend = format(self.metagraph.dividends[uid], ".5f")
         vtrust = format(self.metagraph.validator_trust[uid], ".5f")
         consensus = format(self.metagraph.consensus[uid], ".5f")
@@ -432,6 +441,7 @@ class Miner:
             "version": content.get("version"),
             "network_status": 1,
             "incentive": incentive,
+            "stake": stake,
             "dividend": dividend,
             "vtrust": vtrust,
             "consensus": consensus,
@@ -486,6 +496,7 @@ class Miner:
                 else axon.hotkey
             )
             incentive = format(self.metagraph.incentive[uid], ".5f")
+            stake = self.metagraph.stake[uid]
             dividend = format(self.metagraph.dividends[uid], ".5f")
             vtrust = format(self.metagraph.validator_trust[uid], ".5f")
             consensus = format(self.metagraph.consensus[uid], ".5f")
@@ -500,6 +511,7 @@ class Miner:
                 "version": "",
                 "network_status": 0,
                 "incentive": incentive,
+                "stake": stake,
                 "dividend": dividend,
                 "vtrust": vtrust,
                 "consensus": consensus,

@@ -9,7 +9,7 @@ show_help() {
 cat << EOF
 Usage: ${0##*/} [-e ARG] [-n ARG] [-h] -- Install and run redis
 
-    -e | --exec ARG      type of execution of the redis instance (binary or docker), default docker
+    -e | --exec ARG      type of execution of the redis instance (process or docker), default docker
     -n | --network ARG   network to run the local subtensor on (e.g localnet, testnet and mainnet), default mainnet
     -h | --help          display the help
 EOF

@@ -105,7 +105,8 @@ async def get_all_miners(self) -> List[Miner]:
 
         # Backward compatibility
         if miner.moving_average_score == 0:
-            miner.moving_average_score = self.moving_averaged_scores.get(uid, 0)
+            score_tensor = self.moving_averaged_scores[uid]
+            miner.moving_average_score = score_tensor.item() if score_tensor else 0
 
         # Update the database just to be sure we have the right country
         await update_hotkey_statistics(axon.hotkey, miner.snapshot, self.database)

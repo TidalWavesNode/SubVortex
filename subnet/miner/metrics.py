@@ -2,8 +2,6 @@ import typing
 from prometheus_client import Gauge
 from subnet.validator.models import Miner
 
-# TODO: Remove the unused metrics
-
 # Score metrics
 gauge_miner_final_score = Gauge(
     "miner_final_score",
@@ -24,6 +22,7 @@ gauge_miner_process_time = Gauge("miner_process_time", "Process time", ["uid"])
 gauge_miner_moving_average_score = Gauge(
     "miner_moving_average_score", "Moving average score", ["uid"]
 )
+gauge_miner_challenged_by = Gauge("miner_challenged_by", "Challenged By", ["uid"])
 
 # Distribution metrics
 gauge_miners_distribution = Gauge(
@@ -64,6 +63,7 @@ gauge_neuron_validator = Gauge(
         "country",
         "version",
         "network_status",
+        "stake",
         "vtrust",
         "dividend",
         "consensus",
@@ -83,6 +83,7 @@ gauge_miner = Gauge(
         "version",
         "network_status",
         "last_challenge",
+        "last_challenge_by",
     ],
 )
 
@@ -115,6 +116,7 @@ def send_miners_to_prometheus(miners: typing.List[Miner]):
             version=miner.version,
             network_status=miner.network_status,
             last_challenge=miner.last_challenge,
+            last_challenge_by=miner.last_challenge_by,
         ).set(0)
 
         # Process Time metric
@@ -141,8 +143,13 @@ def send_miners_to_prometheus(miners: typing.List[Miner]):
         distribution_score = miner.distribution_score
         gauge_miner_distribution_score.labels(uid=miner.uid).set(distribution_score)
 
+        # Moving Average Score
         moving_average_score = miner.moving_average_score
         gauge_miner_moving_average_score.labels(uid=miner.uid).set(moving_average_score)
+
+        # Challenge By
+        last_challenge_by = miner.last_challenge_by
+        gauge_miner_challenged_by.labels(uid=miner.uid).set(last_challenge_by)
 
         # Count the number of miner per country
         country_counts[miner.country] = country_counts.get(miner.country, 0) + 1
@@ -190,7 +197,7 @@ def send_neuron_to_prometheus(neuron):
         labels = {
             key: value
             for key, value in neuron.items()
-            if key not in ["type", "vtrust", "dividend", "consensus"]
+            if key not in ["type", "name", "stake", "vtrust", "dividend", "consensus"]
         }
         gauge_neuron_miner.labels(**labels).set(0)
 
@@ -212,7 +219,8 @@ def send_neurons_to_prometheus(neurons, neuron_uid):
             labels = {
                 key: value
                 for key, value in neuron.items()
-                if key not in ["type", "name", "vtrust", "dividend", "consensus"]
+                if key
+                not in ["type", "name", "stake", "vtrust", "dividend", "consensus"]
             }
             gauge_neuron_miner.labels(**labels).set(0)
 
@@ -224,6 +232,7 @@ def send_neurons_to_prometheus(neurons, neuron_uid):
     top_uid = sorted_neurons[0].get("uid")
     worst_uid = sorted_neurons[-1].get("uid")
 
+    gauge_miners_rank_details.clear()
     gauge_miners_rank_details.labels(top=top_uid, worst=worst_uid, rank=rank).set(0)
 
     # Build the rank metric

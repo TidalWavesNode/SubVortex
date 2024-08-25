@@ -19,12 +19,13 @@ import json
 import time
 import copy
 import torch
+import typing
 import asyncio
-from redis import asyncio as aioredis
 import threading
 import bittensor as bt
 from typing import List
 from traceback import print_exception
+from redis import asyncio as aioredis
 
 from subnet import __version__ as THIS_VERSION
 from subnet.constants import NEURO_NETWROK_PORT
@@ -32,7 +33,6 @@ from subnet.monitor.monitor import Monitor
 from subnet.country.country import CountryService
 from subnet.file.file_monitor import FileMonitor
 from subnet.shared.network import NeuroNetwork
-from subnet.protocol import Miners
 
 from subnet.shared.checks import check_registration
 from subnet.shared.utils import get_redis_password, should_upgrade
@@ -154,6 +154,9 @@ class Validator:
         )
         self.metagraph.sync(subtensor=self.subtensor)  # Sync metagraph with subtensor.
         bt.logging.debug(str(self.metagraph))
+
+        self.uid = self.metagraph.hotkeys.index(self.wallet.hotkey.ss58_address)
+        bt.logging.info(f"Running validator on uid: {self.uid}")
 
         # Setup database
         bt.logging.info(f"loading database")
@@ -363,7 +366,10 @@ class Validator:
                 self.subtensor.close()
 
     def _handle_discovery_ack(self):
-        def handle_discovery(message):
+        def handle_discovery(*args, **kwargs):
+            # Get the arguments
+            message = kwargs.get("message", "")
+
             # Instanciate peer
             content = json.loads(message)
 
@@ -380,9 +386,45 @@ class Validator:
 
         return handle_discovery
 
-    def _handle_miners(self, message):
-        # TODO: Resync the miners snapshot!!
-        pass
+    def _handle_miners(self, *args, **kwargs):
+        # Get the arguments
+        message = kwargs.get("message", "")
+
+        content = json.loads(message)
+
+        # Build the miners fron the snapshot
+        miners: typing.List[Miner] = []
+        for item in content:
+            miner = Miner(**item)
+            miners.append(miner)
+
+        uids_updated = []
+        val_miners = list(self.miners)
+        for miner in miners:
+            found = next(
+                ((i, x) for i, x in enumerate(val_miners) if x.uid == miner.uid),
+                None,
+            )
+
+            if found is None:
+                # New miner - add it to the list
+                self.miners.append(miner)
+            else:
+                index, val_miner = found
+                if (
+                    val_miner is not None
+                    and val_miner.last_challenge >= miner.last_challenge
+                ):
+                    # Miner for this validator is more up to date
+                    continue
+
+                self.miners[index] = miner
+
+            uids_updated.append(str(miner.uid))
+
+        if len(uids_updated) > 0:
+            uids_str = ",".join(uids_updated)
+            bt.logging.debug(f"[Network][MINER] Sync {uids_str} miners")
 
 
 if __name__ == "__main__":

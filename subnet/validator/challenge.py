@@ -99,7 +99,6 @@ async def challenge_data(self):
     # Select the miners
     val_hotkey = self.metagraph.hotkeys[self.uid]
     uids = await get_next_uids(self, val_hotkey)
-    uids = uids[:-1] + [60]
     bt.logging.debug(f"[{CHALLENGE_NAME}] Available uids {uids}")
 
     # Get the misbehavior miners
@@ -192,6 +191,9 @@ async def challenge_data(self):
 
         # Set the last challenge time
         miner.last_challenge = start_time
+
+        # Set the validator that has challenged the miner
+        miner.last_challenge_by = self.uid
 
         # Save miner snapshot in database
         await update_statistics(self, miner)
