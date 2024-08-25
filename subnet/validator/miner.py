@@ -62,6 +62,9 @@ async def get_all_miners(self) -> List[Miner]:
 
             version = get_field_value(statistics.get(b"version"), "0.0.0")
             verified = get_field_value(statistics.get(b"verified"), "0")
+            moving_average_score = get_field_value(
+                statistics.get(b"moving_average_score"), 0
+            )
             score = get_field_value(statistics.get(b"score"), 0)
             availability_score = get_field_value(
                 statistics.get(b"availability_score"), 0
@@ -97,7 +100,12 @@ async def get_all_miners(self) -> List[Miner]:
                 challenge_attempts=challenge_attempts,
                 process_time=process_time,
                 last_challenge=last_challange,
+                moving_average_score=moving_average_score,
             )
+
+        # Backward compatibility
+        if miner.moving_average_score == 0:
+            miner.moving_average_score = self.moving_averaged_scores.get(uid, 0)
 
         # Update the database just to be sure we have the right country
         await update_hotkey_statistics(axon.hotkey, miner.snapshot, self.database)

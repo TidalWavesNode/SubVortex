@@ -109,6 +109,9 @@ async def challenge_data(self):
     # Get the locations
     locations = self.country_service.get_locations()
 
+    # alpha of 0.10 means that each new score replaces 10% of the weight of the previous weights
+    alpha: float = 0.1
+
     # Execute the challenges
     tasks = []
     reasons = []
@@ -181,6 +184,13 @@ async def challenge_data(self):
 
         # Send the score details to the miner
         miner.reason = reasons[idx]
+
+        # Set the moving average score
+        miner.moving_average_score = (
+            alpha * miner.score + (1 - alpha) * miner.moving_average_score
+        )
+
+        # Set the last challenge time
         miner.last_challenge = start_time
 
         # Save miner snapshot in database
@@ -201,8 +211,6 @@ async def challenge_data(self):
     bt.logging.trace(f"[{CHALLENGE_NAME}] Scattered rewards: {scattered_rewards}")
 
     # Update moving_averaged_scores with rewards produced by this step.
-    # alpha of 0.05 means that each new score replaces 5% of the weight of the previous weights
-    alpha: float = 0.1
     self.moving_averaged_scores = alpha * scattered_rewards + (
         1 - alpha
     ) * self.moving_averaged_scores.to(self.device)
@@ -217,7 +225,7 @@ async def challenge_data(self):
     )
 
     # Send Miner Synapse
-    send_miners(self, self.miners, self.moving_averaged_scores)
+    send_miners(self, self.miners)
 
     # Display step time
     forward_time = time.time() - start_time

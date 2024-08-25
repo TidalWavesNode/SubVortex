@@ -1,6 +1,6 @@
-import bittensor as bt
-from prometheus_client import Gauge, Counter
-from subnet.protocol import Miners
+import typing
+from prometheus_client import Gauge
+from subnet.validator.models import Miner
 
 # TODO: Remove the unused metrics
 
@@ -102,53 +102,52 @@ def send_details_to_prometheus(
     ).set(1)
 
 
-def send_miners_to_prometheus(synapse: Miners, uid: int):
+def send_miners_to_prometheus(miners: typing.List[Miner]):
     # Clear the old serie
     gauge_miner.clear()
 
-    for index, uid in enumerate(synapse.uids):
+    country_counts = {}
+    for miner in miners:
         # Miner metric
         gauge_miner.labels(
-            uid=uid,
-            country=synapse.countries[index],
-            version=synapse.versions[index],
-            network_status=synapse.network_status[index],
-            last_challenge=synapse.last_challenges[index],
+            uid=miner.uid,
+            country=miner.country,
+            version=miner.version,
+            network_status=miner.network_status,
+            last_challenge=miner.last_challenge,
         ).set(0)
 
         # Process Time metric
-        process_time = synapse.process_times[index]
-        gauge_miner_process_time.labels(uid=uid).set(process_time)
+        process_time = miner.process_time
+        gauge_miner_process_time.labels(uid=miner.uid).set(process_time)
 
         # Final Score metric
-        final_score = synapse.final_scores[index]
-        gauge_miner_final_score.labels(uid=uid).set(final_score)
+        score = miner.score
+        gauge_miner_final_score.labels(uid=miner.uid).set(score)
 
         # Final Score metric
-        availability_score = synapse.availability_scores[index]
-        gauge_miner_availability_score.labels(uid=uid).set(availability_score)
+        availability_score = miner.availability_score
+        gauge_miner_availability_score.labels(uid=miner.uid).set(availability_score)
 
         # Latency Score metric
-        latency_score = synapse.latency_scores[index]
-        gauge_miner_latency_score.labels(uid=uid).set(latency_score)
+        latency_score = miner.latency_score
+        gauge_miner_latency_score.labels(uid=miner.uid).set(latency_score)
 
         # Reliability Score metric
-        reliability_score = synapse.reliability_scores[index]
-        gauge_miner_reliability_score.labels(uid=uid).set(reliability_score)
+        reliability_score = miner.reliability_score
+        gauge_miner_reliability_score.labels(uid=miner.uid).set(reliability_score)
 
         # Distribution Score metric
-        distribution_score = synapse.distribution_scores[index]
-        gauge_miner_distribution_score.labels(uid=uid).set(distribution_score)
+        distribution_score = miner.distribution_score
+        gauge_miner_distribution_score.labels(uid=miner.uid).set(distribution_score)
 
-        moving_average_score = synapse.moving_average_scores[index]
-        gauge_miner_moving_average_score.labels(uid=uid).set(moving_average_score)
+        moving_average_score = miner.moving_average_score
+        gauge_miner_moving_average_score.labels(uid=miner.uid).set(moving_average_score)
 
-    # Build and the send distribution metric
-    country_counts = {}
-    for country in synapse.countries:
-        miner_country = country or "N/A"
-        country_counts[miner_country] = country_counts.get(miner_country, 0) + 1
+        # Count the number of miner per country
+        country_counts[miner.country] = country_counts.get(miner.country, 0) + 1
 
+    # Send distribution metric
     for country, count in country_counts.items():
         gauge_miners_distribution.labels(country=country).set(count)
 

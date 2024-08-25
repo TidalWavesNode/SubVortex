@@ -5,6 +5,7 @@ class Miner:
     ip_occurences: int = 1
     version: str = "0.0.0"
     country: str = None
+    moving_average_score: float = 0
     score: float = 0
     availability_score: float = 0
     reliability_score: float = 0
@@ -34,6 +35,7 @@ class Miner:
         sync=False,
         suspicious=False,
         penalty_factor=None,
+        moving_average_score=0,
         score=0,
         availability_score=0,
         latency_score=0,
@@ -45,7 +47,7 @@ class Miner:
         ip_occurences=1,
         last_challenge=0,
         network_status=0,
-        reason = None
+        reason=None,
     ):
         self.uid = int(uid) if uid is not None else -1
         self.hotkey = hotkey
@@ -57,6 +59,7 @@ class Miner:
         self.sync = sync if sync is not None else False
         self.suspicious = suspicious if suspicious is not None else False
         self.penalty_factor = penalty_factor
+        self.moving_average_score = float(moving_average_score or 0)
         self.score = float(score or 0)
         self.availability_score = float(availability_score or 0)
         self.reliability_score = float(reliability_score or 0)
@@ -68,7 +71,6 @@ class Miner:
         self.last_challenge = float(last_challenge or 0)
         self.network_status = int(network_status or 0)
         self.reason = reason
-
 
     def reset(self, ip, hotkey, country):
         self.hotkey = hotkey
@@ -105,6 +107,7 @@ class Miner:
             "version": self.version,
             "country": self.country,
             "verified": int(self.verified),
+            "moving_average_score": self.moving_average_score,
             "score": self.score,
             "availability_score": self.availability_score,
             "latency_score": self.latency_score,
@@ -117,10 +120,10 @@ class Miner:
         }
 
     def __str__(self):
-        return f"Miner(uid={self.uid}, hotkey={self.hotkey}, ip={self.ip}, ip_occurences={self.ip_occurences}, version={self.version}, country={self.country}, verified={self.verified}, sync={self.sync}, suspicious={self.suspicious}, penalty_factor={self.penalty_factor}, score={self.score}, availability_score={self.availability_score}, latency_score={self.latency_score}, reliability_score={self.reliability_score}, distribution_score={self.distribution_score}, challenge_attempts={self.challenge_attempts}, challenge_successes={self.challenge_successes}, process_time={self.process_time}, last_challenge={self.last_challenge}, reason={self.reason}, network_status={self.network_status})"
+        return f"Miner(uid={self.uid}, hotkey={self.hotkey}, ip={self.ip}, ip_occurences={self.ip_occurences}, version={self.version}, country={self.country}, verified={self.verified}, sync={self.sync}, suspicious={self.suspicious}, penalty_factor={self.penalty_factor}, moving_average_score={self.moving_average_score}, score={self.score}, availability_score={self.availability_score}, latency_score={self.latency_score}, reliability_score={self.reliability_score}, distribution_score={self.distribution_score}, challenge_attempts={self.challenge_attempts}, challenge_successes={self.challenge_successes}, process_time={self.process_time}, last_challenge={self.last_challenge}, reason={self.reason}, network_status={self.network_status})"
 
     def __repr__(self):
-        return f"Miner(uid={self.uid}, hotkey={self.hotkey}, ip={self.ip}, ip_occurences={self.ip_occurences}, version={self.version}, country={self.country}, verified={self.verified}, sync={self.sync}, suspicious={self.suspicious}, penalty_factor={self.penalty_factor}, score={self.score}, availability_score={self.availability_score}, latency_score={self.latency_score}, reliability_score={self.reliability_score}, distribution_score={self.distribution_score}, challenge_attempts={self.challenge_attempts}, challenge_successes={self.challenge_successes}, process_time={self.process_time}, last_challenge={self.last_challenge}, reason={self.reason}, network_status={self.network_status})"
+        return f"Miner(uid={self.uid}, hotkey={self.hotkey}, ip={self.ip}, ip_occurences={self.ip_occurences}, version={self.version}, country={self.country}, verified={self.verified}, sync={self.sync}, suspicious={self.suspicious}, penalty_factor={self.penalty_factor}, moving_average_score={self.moving_average_score}, score={self.score}, availability_score={self.availability_score}, latency_score={self.latency_score}, reliability_score={self.reliability_score}, distribution_score={self.distribution_score}, challenge_attempts={self.challenge_attempts}, challenge_successes={self.challenge_successes}, process_time={self.process_time}, last_challenge={self.last_challenge}, reason={self.reason}, network_status={self.network_status})"
 
     def __eq__(self, other):
         if isinstance(other, Miner):
@@ -131,6 +134,7 @@ class Miner:
                 and self.ip_occurences == other.ip_occurences
                 and self.version == other.version
                 and self.country == other.country
+                and self.moving_average_score == other.moving_average_score
                 and self.score == other.score
                 and self.availability_score == other.availability_score
                 and self.reliability_score == other.reliability_score
@@ -150,3 +154,29 @@ class Miner:
 
     def __hash__(self):
         return hash((self.uid, self.hotkey, self.ip, self.version, self.country))
+
+    def to_dict(self):
+        return {
+            "uid": self.uid,
+            "hotkey": self.hotkey,
+            "ip": self.ip,
+            "ip_occurences": self.ip_occurences,
+            "version": self.version,
+            "country": self.country,
+            "moving_average_score": self.moving_average_score,
+            "score": self.score,
+            "availability_score": self.availability_score,
+            "reliability_score": self.reliability_score,
+            "latency_score": self.latency_score,
+            "distribution_score": self.distribution_score,
+            "challenge_successes": self.challenge_successes,
+            "challenge_attempts": self.challenge_attempts,
+            "process_time": self.process_time,
+            "verified": self.verified,
+            "sync": self.sync,
+            "suspicious": self.suspicious,
+            "penalty_factor": self.penalty_factor,
+            "last_challenge": self.last_challenge,
+            "network_status": self.network_status,
+            "reason": self.reason,
+        }

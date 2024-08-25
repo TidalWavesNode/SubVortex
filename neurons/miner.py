@@ -37,6 +37,7 @@ from subnet.shared.substrate import get_weights_min_stake
 from subnet.shared.mock import MockMetagraph, MockSubtensor, MockAxon
 from subnet.shared.network import NeuroNetwork
 from subnet.shared.delegate import get_delegates_details
+from subnet.validator.models import Miner as MinerEntity
 
 from subnet.country.country import CountryService
 
@@ -123,7 +124,7 @@ class Miner:
         bt.logging._stream_formatter.set_trace(self.config.logging.trace)
         bt.logging.info(f"{self.config}")
 
-        self.previouds_last_challenge = None
+        self.previous_last_challenge = None
 
         # Set ip/port of the miner
         self.ip = bt.utils.networking.get_external_ip()
@@ -349,36 +350,38 @@ class Miner:
 
     def _handle_miners(self, message):
         content = json.loads(message)
-        synapse = Miners(**content)
+
+        miners: typing.List[MinerEntity] = []
+        for item in content:
+            miner = MinerEntity(**item)
+            miners.append(miner)
 
         validator_uid = 20
-
-        index = synapse.uids.index(self.uid)
-        last_challenge = synapse.last_challenges[index]
+        miner = next((x for x in miners if x.uid == self.uid), None)
 
         if (
-            self.previouds_last_challenge is None
-            or self.previouds_last_challenge != last_challenge
+            self.previous_last_challenge is None
+            or self.previous_last_challenge != miner.last_challenge
         ):
-            score = synapse.availability_scores[index]
+            score = miner.availability_score
             bt.logging.info(f"[{validator_uid}] Availability score {score}")
 
-            score = synapse.latency_scores[index]
+            score = miner.latency_score
             bt.logging.info(f"[{validator_uid}] Latency score {score}")
 
-            score = synapse.reliability_scores[index]
+            score = miner.reliability_score
             bt.logging.info(f"[{validator_uid}] Reliability score {score}")
 
-            score = synapse.distribution_scores[index]
+            score = miner.distribution_score
             bt.logging.info(f"[{validator_uid}] Distribution score {score}")
 
-            score = synapse.final_scores[index]
+            score = miner.score
             bt.logging.success(f"[{validator_uid}] Score {score}")
 
-            self.previouds_last_challenge = last_challenge
+            self.previous_last_challenge = miner.last_challenge
 
         # Send metics
-        send_miners_to_prometheus(synapse, self.uid)
+        send_miners_to_prometheus(miners)
 
     def _handle_discovery(self, message):
         content = json.loads(message)

@@ -52,7 +52,7 @@ async def resync_metagraph_and_miners(self, force_refresh=False):
         await resync_miners(self)
 
         # Send Miner Synapse
-        send_miners(self, self.miners, self.moving_averaged_scores)
+        send_miners(self, self.miners)
 
         # Send refresh data to wandb for global graphs
         log_event(self, [miner.uid for miner in self.miners])

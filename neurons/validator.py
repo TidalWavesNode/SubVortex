@@ -232,12 +232,12 @@ class Validator:
             bt.logging.debug("loading wandb")
             init_wandb(self)
 
+        # Load the state
+        load_state(self)
+
         # Init miners
         self.miners = await get_all_miners(self)
         bt.logging.debug(f"Miners loaded {len(self.miners)}")
-
-        # Load the state
-        load_state(self)
 
         # Start Neuro Network
         neurons = [(x.uid, x.axon_info.ip) for x in self.metagraph.neurons]
@@ -253,7 +253,7 @@ class Validator:
         self.p2p.subscribe("MINER", self._handle_miners)
 
         # Send Miner Synapse
-        send_miners(self, self.miners, self.moving_averaged_scores)
+        send_miners(self, self.miners)
 
         try:
             while 1:
@@ -376,11 +376,7 @@ class Validator:
                 return
 
             miner.version = peer.version
-            miner.network_status = peer.status
-
-            # Send Miner Synapse
-            # TODO: Check if we need it or not
-            # send_miners(self, self.miners)
+            miner.network_status = int(peer.status == "healthy")
 
         return handle_discovery
 
